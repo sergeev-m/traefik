@@ -159,6 +159,12 @@ nano .env
 
 Start Traefik:
 
+#### Before the first launch, make sure that an external Docker network has been created:
+
+```bash
+docker network create roxy
+```
+
 ```bash
 docker compose -f docker-compose.yml \
   -f docker-compose.prod.yml up -d
