@@ -1,62 +1,16 @@
-### install
-
-```bash
-chmod +x init.sh
-./init.sh
-```
-
-самоподписанный
-
-mkdir -p certs
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout certs/local.key -out certs/local.crt \
-  -subj "/CN=*.docker.localhost"
-
-или
-
-$ mkcert -install
-  Install the local CA in the system trust store.
- 
-$ mkcert "*.example.it"
-Generate "_wildcard.example.it.pem" and "_wildcard.example.it-key.pem".
-
-
-
-
-Create the Traefik Dashboard Credentials
-In production, it is advisable to have some form of authentication/security for the Traefik dashboard. Traefik can be secured with the basic‑auth middleware. To do this, generate a hashed username / password pair that Traefik’s middleware will validate:
-
-
-# sudo pacman -Syu apache
-
-htpasswd -nb admin "P@ssw0rd" | sed -e 's/\$/\$\$/g'
-Copy the full output (e.g., admin:$$apr1$$…) — we'll need this for the middleware configuration.
-
-
-
-
-
-
-
-
-
-
-
-
 # Traefik
 
 Centralized reverse proxy and TLS gateway for Docker-based applications.
 
-This repository contains Traefik configuration for local development and production environments, including automatic HTTPS, Let's Encrypt certificates, dashboard authentication, and dynamic TLS configuration.
+This repository provides Traefik configuration for local development and production environments, with automatic HTTPS, Let's Encrypt certificate management, and Docker service discovery.
 
 ## Features
 
 - Docker provider with automatic service discovery
 - HTTP to HTTPS redirection
 - Let's Encrypt certificate management
-- Local HTTPS using self-signed certificates or `mkcert`
+- Local HTTPS using `mkcert` or self-signed certificates
 - Traefik Dashboard with Basic Authentication
-- Dynamic TLS configuration
 - Separate local and production Compose configurations
 
 ## Requirements
@@ -64,7 +18,7 @@ This repository contains Traefik configuration for local development and product
 - Docker Engine
 - Docker Compose v2
 - OpenSSL
-- `apache` (`htpasswd`) for Dashboard credentials
+- `htpasswd` (optional, for Dashboard authentication)
 - `mkcert` (optional, for trusted local certificates)
 
 ## Project Structure
@@ -72,10 +26,7 @@ This repository contains Traefik configuration for local development and product
 ```text
 traefik/
 ├── certs/
-│   ├── .gitkeep
-│   └── ...
-├── dynamic/
-│   └── tls.yaml
+│   └── .gitkeep
 ├── docker-compose.yml
 ├── docker-compose.prod.yml
 ├── env.example
@@ -87,7 +38,6 @@ traefik/
 | Path | Description |
 |---|---|
 | `certs/` | TLS certificates and ACME storage |
-| `dynamic/` | Dynamic Traefik configuration |
 | `docker-compose.yml` | Local development configuration |
 | `docker-compose.prod.yml` | Production configuration |
 | `env.example` | Environment variables template |
@@ -98,7 +48,7 @@ traefik/
 Clone the repository:
 
 ```bash
-git clone <repository-url> traefik
+git clone git@github.com:sergeev-m/traefik.git
 cd traefik
 ```
 
@@ -114,38 +64,23 @@ Initialize the environment:
 ./init.sh
 ```
 
-The script prepares the required directories and files, initializes ACME storage, and can generate Dashboard credentials.
+The script:
+
+- Creates the `certs/` directory if it doesn't exist.
+- Creates `certs/acme.json` if it doesn't exist.
+- Sets `acme.json` permissions to `600`.
 
 ## Local Development
 
 Local development requires a TLS certificate for `*.docker.localhost`.
 
-Two certificate generation methods are supported.
+Two certificate generation methods are available.
 
-### Option 1: Self-signed certificate
-
-Generate a self-signed certificate using OpenSSL:
-
-```bash
-./init.sh --self-signed
-```
-
-Equivalent manual command:
-
-```bash
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout certs/local.key \
-  -out certs/local.crt \
-  -subj "/CN=*.docker.localhost"
-```
-
-Browsers will display a certificate warning because the certificate is not issued by a trusted CA.
-
-### Option 2: mkcert (recommended)
+### Option 1: mkcert (recommended)
 
 `mkcert` creates locally trusted certificates using a local Certificate Authority.
 
-Install it:
+Install `mkcert`:
 
 ```bash
 # Arch Linux
@@ -158,23 +93,52 @@ Install the local CA into the system trust store:
 mkcert -install
 ```
 
-Generate the certificate:
+Generate a wildcard certificate:
 
 ```bash
-./init.sh --mkcert
+mkcert "*.docker.localhost"
 ```
 
-This generates:
+This generates two files in the current directory:
 
 ```text
-certs/
-├── local.crt
-└── local.key
+_wildcard.docker.localhost.pem
+_wildcard.docker.localhost-key.pem
 ```
 
-The certificate covers `*.docker.localhost`.
+Move them into the Traefik certificates directory:
 
-> Note: The local CA is installed on your development machine. Other devices will not automatically trust certificates issued by this CA.
+```bash
+mv _wildcard.docker.localhost*.pem certs/
+```
+
+The certificate covers subdomains such as:
+
+- `app.docker.localhost`
+- `api.docker.localhost`
+- `dashboard.docker.localhost`
+
+> Note: The local CA is installed only on your development machine. Other devices will not automatically trust certificates issued by this CA.
+
+### Option 2: Self-signed certificate
+
+Generate a self-signed certificate using OpenSSL:
+
+```bash
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout certs/_wildcard.docker.localhost-key.pem \
+  -out certs/_wildcard.docker.localhost.pem \
+  -subj "/CN=*.docker.localhost" \
+  -addext "subjectAltName=DNS:*.docker.localhost"
+```
+
+Set private key permissions:
+
+```bash
+chmod 600 certs/_wildcard.docker.localhost-key.pem
+```
+
+Browsers will display a certificate warning because the certificate is not issued by a trusted CA.
 
 ## Production
 
@@ -186,7 +150,7 @@ Initialize the environment:
 ./init.sh
 ```
 
-Configure the required environment variables using `env.example` as a reference:
+Configure environment variables using `env.example`:
 
 ```bash
 cp env.example .env
@@ -216,39 +180,60 @@ Do not delete this file unless you intentionally want to reset ACME storage.
 
 The Traefik Dashboard should never be exposed publicly without authentication.
 
-The initialization script can generate a Basic Authentication configuration:
+This repository uses Traefik's Basic Authentication middleware configured through Docker labels.
 
-```text
-dynamic/auth.yaml
-```
+### Generate credentials
 
-The credentials are stored as an Apache-compatible password hash, not as plaintext.
-
-To generate a hash manually:
+Install `htpasswd`:
 
 ```bash
-htpasswd -nB admin
+# Arch Linux
+sudo pacman -S apache
 ```
 
-The resulting hash can be used in the dynamic middleware configuration.
+Generate a bcrypt password hash:
 
-Example:
-
-```yaml
-http:
-  middlewares:
-    dashboard-auth:
-      basicAuth:
-        users:
-          - 'admin:$2y$05$...'
+```bash
+htpasswd -nbB admin
 ```
 
-Enable the middleware on the Dashboard router:
+Alternatively, provide the password directly:
+
+```bash
+htpasswd -nbB admin "P@ssw0rd"
+```
+
+Escape dollar signs for Docker Compose:
+
+```bash
+htpasswd -nbB admin "P@ssw0rd" | sed -e 's/\$/\$\$/g'
+```
+
+Copy the complete output, for example:
+
+```text
+admin:$$2y$$05$$...
+```
+
+### Configure Docker Compose
+
+Add the generated credentials to `.env`:
+
+```env
+DASHBOARD_BASICAUTH=admin:$$2y$$05$$...
+```
+
+Configure the middleware and attach it to the Dashboard router:
 
 ```yaml
 labels:
-  - "traefik.http.routers.dashboard.middlewares=dashboard-auth@file"
+  - "traefik.http.middlewares.dashboard-auth.basicauth.users=${DASHBOARD_BASICAUTH}"
+  - "traefik.http.routers.dashboard.middlewares=dashboard-auth"
 ```
+
+Docker Compose converts `$$` into `$` when passing the value to the container.
+
+Keep `.env` private and never commit it to the repository.
 
 ## Useful Commands
 
@@ -287,7 +272,7 @@ docker compose down
 
 - Never commit `.env`, `acme.json`, private keys, or Dashboard credentials.
 - Keep `acme.json` permissions set to `600`.
-- Use Basic Authentication for the Dashboard.
+- Always protect the Dashboard with authentication.
 - Expose only the ports required by your deployment.
 - Use Let's Encrypt certificates in production.
 - Do not share your `mkcert` root CA private key.
