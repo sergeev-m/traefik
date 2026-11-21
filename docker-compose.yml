@@ -20,11 +20,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./certs:/certs
       - ./dynamic:/dynamic:ro
-      # - ./certs/acme.json:/letsencrypt/acme.json
-
-    environment:
-      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
-    
     command:
       # EntryPoints
       - "--entrypoints.web.address=:80"
@@ -46,21 +41,10 @@ services:
       - "--api.dashboard=true"
       - "--api.insecure=false"
 
-      # Certs
-      # - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
-      # - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
-
-      # - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
-      # - "--certificatesresolvers.le.acme.dnschallenge.provider=cloudflare"
-
-      # Optionally make 'le' the default resolver for TLS-enabled routers
-      # - "--entrypoints.websecure.http.tls.certresolver=le"
-
       # Observability 
       - "--log.level=INFO"
       - "--accesslog=true"
       - "--metrics.prometheus=false"
-
     labels:
       - "traefik.enable=true"
 
